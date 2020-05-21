@@ -14,7 +14,13 @@ http.listen(PORT, () => {
     console.log('Started serving');
 });
 
-app.get('/dbg', (req, res) => {
+app.get('/dbg/' + (process.env.key || '') , (req, res) => {
+    res.write(JSON.stringify(store));
+    res.send();
+});
+
+app.get('/reset/' + (process.env.key || '') , (req, res) => {
+    store = [];
     res.write(JSON.stringify(store));
     res.send();
 });
@@ -118,7 +124,7 @@ wss.on('connection', (ws, req) => {
             const data = JSON.parse(message);
             const questionDigest = data.question;
             const answerDigests = data.answers;
-            const author = req.connection.remoteAddress;
+            const author = data.voter;
 
             // Update memory
             UpdateAnswers(author, questionDigest, answerDigests);
@@ -134,5 +140,7 @@ wss.on('connection', (ws, req) => {
             console.log('Error on message', e);
         }
     });
+
+    ws.send(JSON.stringify(Store2VoteCount()));
 });
 
