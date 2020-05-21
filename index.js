@@ -20,7 +20,7 @@ app.get('/dbg/' + (process.env.key || '') , (req, res) => {
 });
 
 app.get('/reset/' + (process.env.key || '') , (req, res) => {
-    store = [];
+    store.length = 0;
     res.write(JSON.stringify(store));
     res.send();
 });
