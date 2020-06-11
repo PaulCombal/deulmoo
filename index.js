@@ -37,7 +37,7 @@ app.get('/votes', (req, res) => {
 //         'answers': [
 //             {
 //                 answer: digestMessage,
-//                 voters: ['IP 1', 'IP 2']
+//                 voters: ['attempt 1', 'attempt 2']
 //             }
 //         ]
 //     }
@@ -98,13 +98,30 @@ function UpdateAnswers(author, question, answers) {
     }
 }
 
-function Store2VoteCount() {
+function Store2VoteCount(topics = []) {
+    if (topics === []) {
+        // WS connected w/o a topics key
+        // subscribed to nothing
+        return {};
+    }
+
+    /**
+     * {
+     *  "questiondigest": [
+     *      "answerdigest1": "numvotes",
+     *      "answerdigest2": "numvotes"
+     *  ]
+     * }
+     */
+
     const dto = {};
-    for (const oq of store) {
+    const significant_store = store.filter(e => topics.includes(e.question));
+    for (const oq of significant_store) {
         const question = oq.question;
+
         const answers = oq.answers.map(a => {
             const plain = {};
-            plain[a.answer] = a.voters.length;
+            plain[a.answer] = '' + a.voters.length;
             return plain;
         });
 
@@ -114,8 +131,29 @@ function Store2VoteCount() {
     return dto;
 }
 
+function getTopicsFromUrl(url) {
+    if (!url.length) {
+        return [];
+    }
+
+    if (url[0] === '/') {
+        url = url.substring(1);
+    }
+
+    const parser = new URLSearchParams(url);
+
+    if (!parser.has('topics')) {
+        return [];
+    }
+
+    return parser.get('topics').split(',');
+}
+
 // doc https://github.com/websockets/ws
 wss.on('connection', (ws, req) => {
+
+    // Uh oh.. stinky
+    ws.topics = getTopicsFromUrl(req.url);
     
     ws.on('message', message => {
         // console.log(`Received message => ${message}`)
@@ -130,17 +168,23 @@ wss.on('connection', (ws, req) => {
             UpdateAnswers(author, questionDigest, answerDigests);
 
             // Notify other clients (broadcast)
-            const votes = JSON.stringify(Store2VoteCount());
             wss.clients.forEach(client => {
-                // No optimistic behavior on emitter, just wait for it back
-                client.send(votes);
-            })
+                if (!client.topics.includes(questionDigest)) {
+                    return;
+                }
+
+                const votes = Store2VoteCount([questionDigest]);
+                
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(votes));
+                }
+            });
 
         } catch (e) {
             console.log('Error on message', e);
         }
     });
 
-    ws.send(JSON.stringify(Store2VoteCount()));
+    ws.send(JSON.stringify(Store2VoteCount(ws.topics)));
 });
 
