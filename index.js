@@ -53,49 +53,75 @@ function ResetQuestionAnswersForAuthor(author, question) {
     });
 }
 
-// Clears the previous answers from the author on the question
-// Sets the answers to the question with author name
-function UpdateAnswers(author, question, answers) {
-    ResetQuestionAnswersForAuthor(author, question);
 
-    const qObj = store.find(g => g.question === question);
+function UpdateAnswers(data) {
+
+    const question = data.question;
+    const author = data.voter;
+    let check = store.find(g => g.question === question);
     
-    // If this is a new quesiton
-    if (!qObj) {
+    // Ensure question created
+    if (!check) {
         store.push({
             question,
-            answers: answers.map(a => ({
-                answer: a,
-                voters: [author]
-            }))
+            answers: []
         });
-
-        // We inserted the question in the store, and added the questtions
-        // The author voted for
-        return;
     }
 
+    // Ensure answers created
+    check = store.find(g => g.question === question).answers;
+    let answers = data.answers;
+    if (data.vote_type !== 'vote') {
+        answers = [data.answer];
+    }
+
+    for(const answer of answers) {
+        if (!check.find(a => a.answer === answer)) {
+            check.push({
+                answer,
+                voters: [],
+                upvoters: [],
+                downvoters: []
+            });
+        }
+    }
+    
+    // Start adding / removing the voters
+
+    let aObj, idx;
     const storedAnswerArray = store
         .find(g => g.question === question)
         .answers;
 
-    // We need to insert / find the answer and add the voter
-    for (const answer of answers) {
-        const aObj = storedAnswerArray.find(g => g.answer === answer);
+    switch (data.vote_type) {
+        case 'vote':
+            // We're sending all the checked answers for the question at once
+            ResetQuestionAnswersForAuthor(author, question);
+            for(const answer of data.answers) {
+                aObj = storedAnswerArray.find(g => g.answer === answer);
+                aObj.voters.push(author);
+            }
+            break;
 
-        // If this is an unknown answer
-        if (!aObj) {
-            storedAnswerArray.push({
-                answer,
-                voters: [author]
-            })
-        }
-        else {
-            // This is a known answer
-            aObj.voters.push(author);
-        }
+        case 'upvote':
+            aObj = storedAnswerArray.find(g => g.answer === data.answer);
+            if ((idx = aObj.upvoters.indexOf(author)) === -1) {
+                aObj.upvoters.push(author)
+            } else {
+                aObj.upvoters.splice(idx, 1);
+            }
+            break;
 
+        case 'downvote':
+            aObj = storedAnswerArray.find(g => g.answer === data.answer);
+            if ((idx = aObj.downvoters.indexOf(author)) === -1) {
+                aObj.downvoters.push(author)
+            } else {
+                aObj.downvoters.splice(idx, 1);
+            }
+            break;
     }
+
 }
 
 function Store2VoteCount(topics = []) {
@@ -121,7 +147,7 @@ function Store2VoteCount(topics = []) {
 
         const answers = oq.answers.map(a => {
             const plain = {};
-            plain[a.answer] = '' + a.voters.length;
+            plain[a.answer] = [a.voters.length, a.upvoters.length, a.downvoters.length].join(',');
             return plain;
         });
 
@@ -161,11 +187,9 @@ wss.on('connection', (ws, req) => {
         try {
             const data = JSON.parse(message);
             const questionDigest = data.question;
-            const answerDigests = data.answers;
-            const author = data.voter;
 
             // Update memory
-            UpdateAnswers(author, questionDigest, answerDigests);
+            UpdateAnswers(data);
 
             // Notify other clients (broadcast)
             wss.clients.forEach(client => {
